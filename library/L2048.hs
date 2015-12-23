@@ -3,7 +3,6 @@ module L2048 where
 import Graphics.Gloss.Interface.Pure.Game
 import System.Random
 import Data.List
-import System.Random
 import Data.Maybe (fromJust)
 
 {- PROGRAM -}
@@ -65,39 +64,6 @@ initGrid world =
     board = replicate 4 [0, 0, 0, 0]
   }) { tick = True }
 
-{- Adds block on board -}
-addTile :: World -> World
-addTile world = 
-  if tick world
-  then world { board = grid', gen = g', tick = False }
-  else world
-  where
-    grid = board world
-    candidates = getZeroes grid
-    (rnd, g) = randomR (0, length candidates - 1) $ gen world
-    pick = candidates !! rnd
-    (rndval, g') = (randomR (0, 9) $ g)
-    -- 90% 2, 10% - 4
-    val = [2,2,2,2,2,2,2,2,2,4] !! rndval
-    grid' = setSquare grid pick val
-
-{- Finds empty places on game board -}
-getZeroes :: Grid -> [(Int, Int)]
-getZeroes grid = 
-  filter (\(row, col) -> (grid !! row) !! col == 0) coordinates
-  where 
-    singleRow n = zip (replicate 4 n) [0..3]
-    coordinates = concatMap singleRow [0..3]
- 
-{- Moves block to the place -} 
-setSquare :: Grid -> (Int, Int) -> Int -> Grid
-setSquare grid (row, col) val = 
-  pre ++ [mid] ++ post
-  where
-    pre = take row grid
-    mid = take col (grid !! row) ++ [val] ++ drop (col + 1) (grid !! row)
-    post = drop (row + 1) grid
-
 {- RENDER -}
 {- Renders a world -}
 render :: World -> Picture
@@ -147,13 +113,13 @@ renderWireframe size =
 {- Renders a block with value on it -}
 renderBlock :: (Float, Float) -> Int -> Int -> [Picture]
 renderBlock (x, y) size value =
-    let
-      size' = (fromIntegral size) - 4.0
-      hs = (fromIntegral size)
-    in [
-      color orange (translate (x*hs) (y*hs) (rectangleSolid size' size')),
-      translate ((x*hs) - 32) (y*hs) $ color white $ scale 0.25 0.25 $ text (show value)
-    ]
+  let
+    size' = (fromIntegral size) - 4.0
+    hs = (fromIntegral size)
+  in [
+    color orange (translate (x*hs) (y*hs) (rectangleSolid size' size')),
+    translate ((x*hs) - 32) (y*hs) $ color white $ scale 0.25 0.25 $ text (show value)
+  ]
 
 {- Renders blocks -}    
 renderRow :: (Int, [Int]) -> Int -> [Picture]
@@ -223,7 +189,7 @@ update dt world =
     let w' = move world
     in
       if isOver $ canMove $ w'
-      then w'
+      then w' {- isOver = True -} -- Stop condition isn't properly implemented
       else addTile w'
 
 {- Moves blocks -}      
@@ -257,13 +223,47 @@ merge :: [Int] -> [Int]
 merge xs = 
   merged ++ padding
   where 
-    padding = replicate (length xs - length merged) 0
-    merged = combine $ filter (/= 0) xs
     combine (x:y:xs)  | x == y = x * 2 : combine xs
                       | otherwise = x : combine (y:xs)
     combine x = x
+    merged = combine $ filter (/= 0) xs
+    padding = replicate (length xs - length merged) 0
 
-{- Game should end if there are no empty spaces on board. But it doesn't works. Maybe -}
+{- Adds block on board -}
+addTile :: World -> World
+addTile world = 
+  if tick world
+  then world { board = grid', gen = g', tick = False }
+  else world
+  where
+    grid = board world
+    candidates = getZeroes grid
+    (rnd, g) = randomR (0, length candidates - 1) $ gen world
+    pick = candidates !! rnd
+    (rndval, g') = (randomR (0, 9) $ g)
+    -- 90% 2, 10% - 4
+    val = [2,2,2,2,2,2,2,2,2,4] !! rndval
+    grid' = setSquare grid pick val
+
+{- Finds empty places on game board -}
+getZeroes :: Grid -> [(Int, Int)]
+getZeroes grid = 
+  filter (\(row, col) -> (grid !! row) !! col == 0) coordinates
+  where 
+    singleRow n = zip (replicate 4 n) [0..3]
+    coordinates = concatMap singleRow [0..3]
+ 
+{- Moves block to the place -} 
+setSquare :: Grid -> (Int, Int) -> Int -> Grid
+setSquare grid (row, col) val = 
+  pre ++ [mid] ++ post
+  where
+    pre = take row grid
+    mid = take col (grid !! row) ++ [val] ++ drop (col + 1) (grid !! row)
+    post = drop (row + 1) grid
+
+{- Game should end if there are no empty spaces on board -}
+{- TODO: Count possible moves! -}
 canMove :: World -> World
 canMove world =
   let 
