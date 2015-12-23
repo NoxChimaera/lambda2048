@@ -2,13 +2,11 @@ module L2048 where
 
 import Graphics.Gloss.Interface.Pure.Game
 import System.Random
---import Data.Char (toLower)
 import Data.List
---import System.IO
 import System.Random
 import Data.Maybe (fromJust)
 
-{- Program -}
+{- PROGRAM -}
 main :: IO ()
 main = do
   seed <- randomIO
@@ -37,15 +35,15 @@ main = do
 displayMode :: World -> Display
 displayMode world = 
   -- Display.InWindow Title Size Position
-  InWindow "HS2048" (resolution world) (0, 0)
+  InWindow "Lambda2048" (resolution world) (0, 0)
 
 backgroundColor :: Color
 backgroundColor = white
 
 fps :: Int
-fps = 30
+fps = 15
 
-{- Creates new instance of world and adds one block to it -}
+{- Creates new instance of world -}
 initialWorld :: Int -> World
 initialWorld seed =
   initGrid NewWorld {
@@ -55,36 +53,43 @@ initialWorld seed =
     gen = mkStdGen seed,
     score = 0,
     direction = None,
-    board = [[]]
+    board = [[]],
+    tick = True,
+    emptyBlocks = 16
   }
   
+{- Initializes game board and add two block -}  
 initGrid :: World -> World
 initGrid world =
-  addTile $ addTile world {
+  addTile $ (addTile world {
     board = replicate 4 [0, 0, 0, 0]
-  }
+  }) { tick = True }
 
-    --(rnd, g) = R.randomR (0, length xs - 1) $ gen world
-  
+{- Adds block on board -}
 addTile :: World -> World
 addTile world = 
-  let
+  if tick world
+  then world { board = grid', gen = g', tick = False }
+  else world
+  where
     grid = board world
     candidates = getZeroes grid
     (rnd, g) = randomR (0, length candidates - 1) $ gen world
     pick = candidates !! rnd
     (rndval, g') = (randomR (0, 9) $ g)
+    -- 90% 2, 10% - 4
     val = [2,2,2,2,2,2,2,2,2,4] !! rndval
     grid' = setSquare grid pick val
-  in world { board = grid', gen = g' }
 
+{- Finds empty places on game board -}
 getZeroes :: Grid -> [(Int, Int)]
 getZeroes grid = 
   filter (\(row, col) -> (grid !! row) !! col == 0) coordinates
   where 
     singleRow n = zip (replicate 4 n) [0..3]
     coordinates = concatMap singleRow [0..3]
-  
+ 
+{- Moves block to the place -} 
 setSquare :: Grid -> (Int, Int) -> Int -> Grid
 setSquare grid (row, col) val = 
   pre ++ [mid] ++ post
@@ -100,13 +105,27 @@ render world =
   let
     grid = renderGrid (board world) (blockSize world)
     wireframe = renderWireframe (blockSize world)
-    pics = renderDebug world : union wireframe grid
+    pics = concat [[renderDebug world], wireframe, grid, [renderGameOver world]]
   -- Picture.pictures :: [Picture] -> Picture
   in pictures pics
 
+{- Renders game over message. Does it works? -}
+renderGameOver :: World -> Picture
+renderGameOver world =
+  if isOver world
+  then pictures [ color red (scale 0.2 0.2 (text "Game Over")) ] 
+  else blank
+  
+{- Renders debug info -}
 renderDebug :: World -> Picture
 renderDebug world =
-  translate (-300) (-280) $ color red (scale 0.1 0.1 (text $ show $ board world))
+  let
+    board' = show $ board world
+    end' = show $ isOver world
+    emp' = show $ emptyBlocks world
+    debug = board' ++ " " ++ end' ++ " " ++ emp'
+  in
+    translate (-300) (-280) $ color red (scale 0.1 0.1 (text debug))
   
 {- Renders a cell -}
 renderCell :: Float -> Float -> Int -> Picture
@@ -129,7 +148,7 @@ renderWireframe size =
 renderBlock :: (Float, Float) -> Int -> Int -> [Picture]
 renderBlock (x, y) size value =
     let
-      size' = fromIntegral size
+      size' = (fromIntegral size) - 4.0
       hs = (fromIntegral size)
     in [
       color orange (translate (x*hs) (y*hs) (rectangleSolid size' size')),
@@ -142,6 +161,7 @@ renderRow row scale =
   let 
     s' = fromIntegral scale
     i = fromIntegral $ fst row
+    -- 'cause of (0, 0) in the centre of window
     i' = i - 1.5
     row' = snd row
     
@@ -157,6 +177,7 @@ renderRow row scale =
   in 
     concat [p0, p1, p2, p3]
 
+{- Renders game board -}
 renderGrid :: Grid -> Int -> [Picture]
 renderGrid grid scale =
   let g' = [ (0, (grid !! 0)), (1, (grid !! 1)), (2, (grid !! 2)), (3, (grid !! 3)) ]
@@ -198,13 +219,23 @@ update :: Float -> World -> World
 update dt world =
   if isOver world
   then world
-  else case direction world of
-    West -> addTile world { direction = None, board = (moveLeft $ board world) }
-    East -> addTile world { direction = None, board = (moveRight $ board world) }
-    North -> addTile world { direction = None, board = (moveUp $ board world) }
-    South -> addTile world { direction = None, board = (moveDown $ board world) }
-    _ -> world
-  
+  else 
+    let w' = move world
+    in
+      if isOver $ canMove $ w'
+      then w'
+      else addTile w'
+
+{- Moves blocks -}      
+move :: World -> World
+move world =
+  case direction world of
+    West -> world { direction = None, board = (moveLeft $ board world), tick = True }
+    East -> world { direction = None, board = (moveRight $ board world), tick = True }
+    North -> world { direction = None, board = (moveUp $ board world), tick = True }
+    South -> world { direction = None, board = (moveDown $ board world), tick = True }
+    _ -> world 
+ 
 moveLeft :: Grid -> Grid
 moveLeft grid =
   map merge grid
@@ -221,6 +252,7 @@ moveUp :: Grid -> Grid
 moveUp grid =
   transpose $ moveRight $ transpose grid
 
+{- Merges neighbour blocks with same values -}
 merge :: [Int] -> [Int]
 merge xs = 
   merged ++ padding
@@ -231,15 +263,17 @@ merge xs =
                       | otherwise = x : combine (y:xs)
     combine x = x
 
-{--canMove :: Grid -> Bool
-canMove grid =
-  sum allChoices > 0
-  where
-    allChoices = map (length . getZeroes . flip move grid) directions
-    directions = [Left, Right, Up, Down]
---} 
-  
-{- World -}
+{- Game should end if there are no empty spaces on board. But it doesn't works. Maybe -}
+canMove :: World -> World
+canMove world =
+  let 
+    s = length (getZeroes $ board world)
+  in 
+    if s == 0
+    then world { isOver = True, emptyBlocks = s }
+    else world { emptyBlocks = s }
+ 
+{- DATA -} 
 type Grid = [[Int]]
 data World = NewWorld {
   resolution :: (Int, Int),
@@ -248,7 +282,9 @@ data World = NewWorld {
   gen :: StdGen,
   score :: Int,
   direction :: Direction,
-  board :: Grid
+  board :: Grid,
+  tick :: Bool,
+  emptyBlocks :: Int
 } deriving (Read, Show)
 
 size :: (Num a) => World -> a
